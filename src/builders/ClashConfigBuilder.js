@@ -209,9 +209,17 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                     'grpc-opts': proxy.transport?.type === 'grpc' ? {
                         'grpc-service-name': proxy.transport.service_name,
                     } : undefined,
+                    // xhttp/splithttp: mihomo 1.18+ uses xhttp-opts with mode/path/host.
+                    'xhttp-opts': (proxy.transport?.type === 'xhttp' || proxy.transport?.type === 'splithttp') ? {
+                        path: proxy.transport.path,
+                        host: proxy.transport.headers?.host,
+                        mode: proxy.transport.mode,
+                    } : undefined,
                     tfo: proxy.tcp_fast_open,
                     'skip-cert-verify': !!proxy.tls?.insecure,
                     udp: getClashUdpValue(proxy),
+                    // Post-quantum encryption (e.g. mlkem768x25519plus...) must be kept.
+                    ...(proxy.encryption ? { encryption: proxy.encryption } : {}),
                     ...(proxy.alpn ? { alpn: proxy.alpn } : {}),
                     ...(proxy.packet_encoding ? { 'packet-encoding': proxy.packet_encoding } : {}),
                     'flow': proxy.flow ?? undefined,

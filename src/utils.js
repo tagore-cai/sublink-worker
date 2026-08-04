@@ -292,7 +292,9 @@ export function createTlsConfig(params) {
 		tls = {
 			enabled: true,
 			server_name: params.sni || params.host,
-			insecure: !!params?.allowInsecure || !!params?.insecure || !!params?.allow_insecure,
+			// Parse truthy strings (0/1/false/true) instead of JS truthiness so
+			// insecure=0 is not treated as true (issue #417).
+			insecure: parseBool(params.allowInsecure ?? params.insecure ?? params.allow_insecure, false),
 			// utls: {
 			//   enabled: true,
 			//   fingerprint: "chrome"
@@ -314,6 +316,8 @@ export function createTransportConfig(params) {
 		type: params.type,
 		path: params.path ?? undefined,
 		...(params.host && { 'headers': { 'host': params.host } }),
+		// xhttp/splithttp transport carries a `mode` field that Clash needs.
+		...(params.mode && { mode: params.mode }),
 		...(params.type === 'grpc' && {
 			service_name: params.serviceName ?? undefined,
 		})

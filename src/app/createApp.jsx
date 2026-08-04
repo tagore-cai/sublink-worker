@@ -340,6 +340,9 @@ export function createApp(bindings = {}) {
         }
     });
 
+    // Short links dispatch internally to the target endpoint and return the final
+    // config with HTTP 200. A 302 redirect to a multi-KB URL (config content +
+    // selectedRules JSON) breaks some clients (e.g. Clash Verge/reqwest, #417).
     const redirectHandler = (prefix) => async (c) => {
         try {
             const code = c.req.param('code');
@@ -348,7 +351,13 @@ export function createApp(bindings = {}) {
             if (!originalParam) return c.text('Short URL not found', 404);
 
             const url = new URL(c.req.url);
-            return c.redirect(`${url.origin}/${prefix}${originalParam}`);
+            const target = new URL(`${url.origin}/${prefix}${originalParam}`);
+            // Preserve original headers so language/UA detection still works.
+            const request = new Request(target.toString(), {
+                method: 'GET',
+                headers: c.req.raw.headers
+            });
+            return await app.request(request);
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }

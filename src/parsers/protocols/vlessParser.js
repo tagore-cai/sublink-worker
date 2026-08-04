@@ -1,4 +1,4 @@
-import { parseServerInfo, parseUrlParams, createTlsConfig, createTransportConfig, parseBool } from '../../utils.js';
+import { parseServerInfo, parseUrlParams, createTlsConfig, createTransportConfig, parseBool, parseArray } from '../../utils.js';
 
 export function parseVless(url) {
     const { addressPart, params, name } = parseUrlParams(url);
@@ -27,6 +27,11 @@ export function parseVless(url) {
         tls,
         transport,
         flow: params.flow ?? undefined,
+        // Preserve post-quantum encryption and fields that Clash distinguishes
+        // nodes by, otherwise identical nodes get deduped away (issue #417).
+        ...(params.encryption && { encryption: params.encryption }),
+        ...(params.alpn && { alpn: parseArray(params.alpn) }),
+        ...(params.packet_encoding && { packet_encoding: params.packet_encoding }),
         ...(udp !== undefined ? { udp } : {})
     };
 }
