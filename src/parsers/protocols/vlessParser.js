@@ -6,10 +6,11 @@ export function parseVless(url) {
     const { host, port } = parseServerInfo(serverInfo);
 
     const tls = createTlsConfig(params);
-    if (tls.reality) {
+    // Honor the fp (fingerprint) param instead of hardcoding chrome (#417).
+    if (tls.enabled && params.fp) {
         tls.utls = {
             enabled: true,
-            fingerprint: 'chrome'
+            fingerprint: params.fp
         };
     }
     const transport = params.type !== 'tcp' ? createTransportConfig(params) : undefined;

@@ -5,6 +5,7 @@ import { MemoryKVAdapter } from '../src/adapters/kv/memoryKv.js';
 import { parseVless } from '../src/parsers/protocols/vlessParser.js';
 import { parseTuic } from '../src/parsers/protocols/tuicParser.js';
 import { ClashConfigBuilder } from '../src/builders/ClashConfigBuilder.js';
+import { SingboxConfigBuilder } from '../src/builders/SingboxConfigBuilder.js';
 
 const createTestApp = () => {
     const runtime = {
@@ -31,6 +32,15 @@ describe('issue-417 VLESS fields', () => {
         expect(parseVless('vless://u@h.com:443?security=tls#c').tls.insecure).toBe(false);
     });
 
+    it('honors the fp fingerprint param instead of hardcoding chrome', () => {
+        const node = parseVless('vless://u@h.com:443?security=reality&fp=firefox&pbk=abc&sid=1&sni=h.com#a');
+        expect(node.tls.utls.fingerprint).toBe('firefox');
+        const noFp = parseVless('vless://u@h.com:443?security=reality&pbk=abc&sid=1&sni=h.com#b');
+        expect(noFp.tls.utls).toBeUndefined();
+        const tlsFp = parseVless('vless://u@h.com:443?security=tls&fp=chrome&sni=h.com#c');
+        expect(tlsFp.tls.utls.fingerprint).toBe('chrome');
+    });
+
     it('defaults TUIC insecure to false unless explicitly enabled', () => {
         expect(parseTuic('tuic://uuid:pwd@h.com:443?sni=h.com#c').tls.insecure).toBe(false);
         expect(parseTuic('tuic://uuid:pwd@h.com:443?sni=h.com&insecure=1#d').tls.insecure).toBe(true);
@@ -54,6 +64,19 @@ describe('issue-417 VLESS fields', () => {
         expect(byName['node-a']['skip-cert-verify']).toBe(false);
         expect(byName['node-b'].alpn).toEqual(['h3']);
         expect(byName['node-c'].alpn).toEqual(['http/1.1']);
+    });
+
+    it('keeps packet_encoding for sing-box 1.12+ but strips it for 1.11', async () => {
+        const input = 'vless://u@h.com:443?security=tls&sni=h.com&type=xhttp&path=/x&mode=auto&packet_encoding=xudp#node-a';
+        const b12 = new SingboxConfigBuilder(input, 'all', [], null, 'zh-CN', 'test-agent', false, false, null, null, '1.12');
+        const cfg12 = await b12.build();
+        const o12 = cfg12.outbounds.find(o => o.type === 'vless');
+        expect(o12.packet_encoding).toBe('xudp');
+
+        const b11 = new SingboxConfigBuilder(input, 'all', [], null, 'zh-CN', 'test-agent', false, false, null, null, '1.11');
+        const cfg11 = await b11.build();
+        const o11 = cfg11.outbounds.find(o => o.type === 'vless');
+        expect(o11.packet_encoding).toBeUndefined();
     });
 
     it('GET /clash keeps both alpn-distinct nodes', async () => {

@@ -120,9 +120,11 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
             delete sanitized.alpn;
         }
 
-        // Remove packet_encoding for now - it's version-specific in sing-box
-        // xudp is default in newer versions
-        delete sanitized.packet_encoding;
+        // `packet_encoding` is supported by sing-box 1.12+ (xudp); strip it for
+        // 1.11 where it would be rejected as an unknown field (#417).
+        if (this.singboxVersion === '1.11') {
+            delete sanitized.packet_encoding;
+        }
 
         return sanitized;
     }
