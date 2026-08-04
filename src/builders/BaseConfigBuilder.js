@@ -35,6 +35,7 @@ export class BaseConfigBuilder {
 
         // Import the content parser for direct input parsing
         const { parseSubscriptionContent } = await import('../parsers/subscription/subscriptionContentParser.js');
+        const { fetchSubscriptionWithFormat } = await import('../parsers/subscription/httpSubscriptionFetcher.js');
 
         // Try to parse the entire input as a config format (Sing-Box JSON or Clash YAML)
         const directResult = parseSubscriptionContent(input);
@@ -80,107 +81,121 @@ export class BaseConfigBuilder {
 
         // Otherwise, line-by-line processing (URLs, subscription content, remote lists, etc.)
         const urls = input.split('\n').filter(url => url.trim() !== '');
+        const expandedUrls = [];
         for (const url of urls) {
             let processedUrls = tryDecodeSubscriptionLines(url);
             if (!Array.isArray(processedUrls)) {
                 processedUrls = [processedUrls];
             }
-
             for (const processedUrl of processedUrls) {
                 const trimmedUrl = typeof processedUrl === 'string' ? processedUrl.trim() : '';
+                if (!trimmedUrl) continue;
+                const isHttp = trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://');
+                expandedUrls.push({ trimmedUrl, isHttp });
+            }
+        }
 
-                // Check if it's an HTTP(S) URL - may use as provider if format matches
-                if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
-                    const { fetchSubscriptionWithFormat } = await import('../parsers/subscription/httpSubscriptionFetcher.js');
+        // Fetch all remote subscriptions in parallel so one slow/hung source does
+        // not stall the rest (Cloudflare Workers caps total request time at 30s).
+        const fetchPromises = expandedUrls
+            .filter(entry => entry.isHttp)
+            .map(entry => fetchSubscriptionWithFormat(entry.trimmedUrl, this.userAgent)
+                .then(result => ({ url: entry.trimmedUrl, result }))
+                .catch(() => ({ url: entry.trimmedUrl, result: null })));
+        const fetchResults = new Map();
+        (await Promise.all(fetchPromises)).forEach(({ url, result }) => fetchResults.set(url, result));
 
-                    try {
-                        const fetchResult = await fetchSubscriptionWithFormat(trimmedUrl, this.userAgent);
-                        if (fetchResult) {
-                            const { content, format, url: originalUrl, subscriptionUserinfo } = fetchResult;
-
-                            if (subscriptionUserinfo && !this.subscriptionUserinfo) {
-                                this.subscriptionUserinfo = subscriptionUserinfo;
-                            }
-
-                            // If format is compatible with target client, use as provider
-                            // A node filter forces inline parsing so it applies to all nodes.
-                            if (!this.proxyFilter && this.isCompatibleProviderFormat(format)) {
-                                this.providerUrls.push(originalUrl);
-                                // Content is already fetched; keep node names so country
-                                // groups can be built over provider members later.
-                                await this.collectProviderNodeNames(content);
-                                continue;  // Skip parsing, will be used as provider
-                            }
-
-                            // Otherwise parse the content as usual
-                            const result = parseSubscriptionContent(content);
-                            if (result && typeof result === 'object' && (result.type === 'yamlConfig' || result.type === 'singboxConfig' || result.type === 'surgeConfig')) {
-                                if (result.config) {
-                                    this.applyConfigOverrides(result.config);
-                                }
-                                if (Array.isArray(result.proxies)) {
-                                    result.proxies.forEach(proxy => {
-                                        if (proxy && typeof proxy === 'object' && proxy.tag) {
-                                            parsedItems.push(proxy);
-                                        }
-                                    });
-                                }
-                                continue;
-                            }
-                            // Handle array of URIs or other formats
-                            if (Array.isArray(result)) {
-                                for (const item of result) {
-                                    if (item && typeof item === 'object' && item.tag) {
-                                        parsedItems.push(item);
-                                    } else if (typeof item === 'string') {
-                                        const subResult = await ProxyParser.parse(item, this.userAgent);
-                                        if (subResult) {
-                                            parsedItems.push(subResult);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Error processing HTTP subscription:', error);
-                    }
-                    continue;
-                }
-
-                // Non-HTTP URLs (protocol URIs like ss://, vmess://, etc.)
-                const result = await ProxyParser.parse(processedUrl, this.userAgent);
-                // Handle yamlConfig, singboxConfig, and surgeConfig types (they have the same structure)
-                if (result && typeof result === 'object' && (result.type === 'yamlConfig' || result.type === 'singboxConfig' || result.type === 'surgeConfig')) {
-                    if (result.config) {
-                        this.applyConfigOverrides(result.config);
-                    }
-                    if (Array.isArray(result.proxies)) {
-                        result.proxies.forEach(proxy => {
-                            if (proxy && typeof proxy === 'object' && proxy.tag) {
-                                parsedItems.push(proxy);
-                            }
-                        });
-                    }
-                    continue;
-                }
-                if (Array.isArray(result)) {
-                    for (const item of result) {
-                        if (item && typeof item === 'object' && item.tag) {
-                            parsedItems.push(item);
-                        } else if (typeof item === 'string') {
-                            const subResult = await ProxyParser.parse(item, this.userAgent);
-                            if (subResult) {
-                                parsedItems.push(subResult);
-                            }
-                        }
-                    }
-                } else if (result) {
-                    parsedItems.push(result);
-                }
+        // Process in original order, preserving side effects (config overrides, providers).
+        for (const { trimmedUrl, isHttp } of expandedUrls) {
+            if (isHttp) {
+                await this.processHttpSubscription(trimmedUrl, fetchResults.get(trimmedUrl) || null, parsedItems, parseSubscriptionContent, fetchSubscriptionWithFormat);
+            } else {
+                await this.processNonHttpItem(trimmedUrl, parsedItems, parseSubscriptionContent);
             }
         }
 
         return parsedItems;
+    }
+
+    async processHttpSubscription(trimmedUrl, fetchResult, parsedItems, parseSubscriptionContent) {
+        if (!fetchResult) return;  // Fetch failed or timed out; skip this source only.
+
+        const { content, format, url: originalUrl, subscriptionUserinfo } = fetchResult;
+
+        if (subscriptionUserinfo && !this.subscriptionUserinfo) {
+            this.subscriptionUserinfo = subscriptionUserinfo;
+        }
+
+        // If format is compatible with target client, use as provider
+        // A node filter forces inline parsing so it applies to all nodes.
+        if (!this.proxyFilter && this.isCompatibleProviderFormat(format)) {
+            this.providerUrls.push(originalUrl);
+            // Content is already fetched; keep node names so country
+            // groups can be built over provider members later.
+            await this.collectProviderNodeNames(content);
+            return;
+        }
+
+        // Otherwise parse the content as usual
+        const result = parseSubscriptionContent(content);
+        if (result && typeof result === 'object' && (result.type === 'yamlConfig' || result.type === 'singboxConfig' || result.type === 'surgeConfig')) {
+            if (result.config) {
+                this.applyConfigOverrides(result.config);
+            }
+            if (Array.isArray(result.proxies)) {
+                result.proxies.forEach(proxy => {
+                    if (proxy && typeof proxy === 'object' && proxy.tag) {
+                        parsedItems.push(proxy);
+                    }
+                });
+            }
+            return;
+        }
+        // Handle array of URIs or other formats
+        if (Array.isArray(result)) {
+            for (const item of result) {
+                if (item && typeof item === 'object' && item.tag) {
+                    parsedItems.push(item);
+                } else if (typeof item === 'string') {
+                    const subResult = await ProxyParser.parse(item, this.userAgent);
+                    if (subResult) {
+                        parsedItems.push(subResult);
+                    }
+                }
+            }
+        }
+    }
+
+    async processNonHttpItem(processedUrl, parsedItems, parseSubscriptionContent) {
+        const result = await ProxyParser.parse(processedUrl, this.userAgent);
+        // Handle yamlConfig, singboxConfig, and surgeConfig types (they have the same structure)
+        if (result && typeof result === 'object' && (result.type === 'yamlConfig' || result.type === 'singboxConfig' || result.type === 'surgeConfig')) {
+            if (result.config) {
+                this.applyConfigOverrides(result.config);
+            }
+            if (Array.isArray(result.proxies)) {
+                result.proxies.forEach(proxy => {
+                    if (proxy && typeof proxy === 'object' && proxy.tag) {
+                        parsedItems.push(proxy);
+                    }
+                });
+            }
+            return;
+        }
+        if (Array.isArray(result)) {
+            for (const item of result) {
+                if (item && typeof item === 'object' && item.tag) {
+                    parsedItems.push(item);
+                } else if (typeof item === 'string') {
+                    const subResult = await ProxyParser.parse(item, this.userAgent);
+                    if (subResult) {
+                        parsedItems.push(subResult);
+                    }
+                }
+            }
+        } else if (result) {
+            parsedItems.push(result);
+        }
     }
 
     /**

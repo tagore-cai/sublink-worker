@@ -3,6 +3,20 @@ import { parseSubscriptionContent } from './subscriptionContentParser.js';
 
 const SUBSCRIPTION_URI_PATTERN = /^(ss|vmess|vless|hysteria|hysteria2|hy2|trojan|tuic|anytls|http|https):\/\//i;
 
+// Default per-subscription fetch timeout. A single slow/hung subscription must
+// not stall the whole conversion (Cloudflare Workers hard-limits requests at 30s).
+export const SUBSCRIPTION_FETCH_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(url, init = {}, timeoutMs = SUBSCRIPTION_FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 function hasSubscriptionUriLine(content) {
     return content
         .split(/\r?\n/)
@@ -122,16 +136,16 @@ function detectFormat(content) {
  * @param {string} userAgent - Optional User-Agent header
  * @returns {Promise<object|string[]|null>} - Parsed subscription content
  */
-export async function fetchSubscription(url, userAgent) {
+export async function fetchSubscription(url, userAgent, timeoutMs = SUBSCRIPTION_FETCH_TIMEOUT_MS) {
     try {
         const headers = new Headers();
         if (userAgent) {
             headers.set('User-Agent', userAgent);
         }
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'GET',
             headers: headers
-        });
+        }, timeoutMs);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -151,16 +165,16 @@ export async function fetchSubscription(url, userAgent) {
  * @param {string} userAgent - Optional User-Agent header
  * @returns {Promise<{content: string, format: 'clash'|'singbox'|'surge'|'unknown', url: string, subscriptionUserinfo?: string}|null>}
  */
-export async function fetchSubscriptionWithFormat(url, userAgent) {
+export async function fetchSubscriptionWithFormat(url, userAgent, timeoutMs = SUBSCRIPTION_FETCH_TIMEOUT_MS) {
     try {
         const headers = new Headers();
         if (userAgent) {
             headers.set('User-Agent', userAgent);
         }
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'GET',
             headers: headers
-        });
+        }, timeoutMs);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
