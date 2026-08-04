@@ -85,6 +85,12 @@ export const formLogicFn = (t) => {
             subconverterCopied: false,
             groupByCountry: false,
             includeAutoSelect: true,
+            filterInclude: '',
+            filterExclude: '',
+            filterIncludeCountry: '',
+            filterExcludeCountry: '',
+            filterIncludeType: '',
+            filterExcludeType: '',
             enableClashUI: false,
             externalController: '',
             externalUiDownloadUrl: '',
@@ -132,6 +138,13 @@ export const formLogicFn = (t) => {
                 this.showAdvanced = localStorage.getItem('advancedToggle') === 'true';
                 this.groupByCountry = localStorage.getItem('groupByCountry') === 'true';
                 this.includeAutoSelect = localStorage.getItem('includeAutoSelect') !== 'false';
+                this.filterInclude = localStorage.getItem('filterInclude') || '';
+                this.filterExclude = localStorage.getItem('filterExclude') || '';
+                this.filterIncludeCountry = localStorage.getItem('filterIncludeCountry') || '';
+                this.filterExcludeCountry = localStorage.getItem('filterExcludeCountry') || '';
+                this.filterIncludeType = localStorage.getItem('filterIncludeType') || '';
+                this.filterExcludeType = localStorage.getItem('filterExcludeType') || '';
+
                 this.enableClashUI = localStorage.getItem('enableClashUI') === 'true';
                 this.externalController = localStorage.getItem('externalController') || '';
                 this.externalUiDownloadUrl = localStorage.getItem('externalUiDownloadUrl') || '';
@@ -163,6 +176,12 @@ export const formLogicFn = (t) => {
                 this.$watch('showAdvanced', val => localStorage.setItem('advancedToggle', val));
                 this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
                 this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
+                this.$watch('filterInclude', val => localStorage.setItem('filterInclude', val));
+                this.$watch('filterExclude', val => localStorage.setItem('filterExclude', val));
+                this.$watch('filterIncludeCountry', val => localStorage.setItem('filterIncludeCountry', val));
+                this.$watch('filterExcludeCountry', val => localStorage.setItem('filterExcludeCountry', val));
+                this.$watch('filterIncludeType', val => localStorage.setItem('filterIncludeType', val));
+                this.$watch('filterExcludeType', val => localStorage.setItem('filterExcludeType', val));
                 this.$watch('enableClashUI', val => localStorage.setItem('enableClashUI', val));
                 this.$watch('externalController', val => localStorage.setItem('externalController', val));
                 this.$watch('externalUiDownloadUrl', val => localStorage.setItem('externalUiDownloadUrl', val));
@@ -220,6 +239,13 @@ export const formLogicFn = (t) => {
                 if (this.groupByCountry) {
                     params.append('group_by_country', 'true');
                 }
+
+                if (this.filterInclude.trim()) params.append('include', this.filterInclude.trim());
+                if (this.filterExclude.trim()) params.append('exclude', this.filterExclude.trim());
+                if (this.filterIncludeCountry.trim()) params.append('include_country', this.filterIncludeCountry.trim());
+                if (this.filterExcludeCountry.trim()) params.append('exclude_country', this.filterExcludeCountry.trim());
+                if (this.filterIncludeType.trim()) params.append('include_type', this.filterIncludeType.trim());
+                if (this.filterExcludeType.trim()) params.append('exclude_type', this.filterExcludeType.trim());
 
                 // Include lang parameter so subconverter gets correct group names
                 const appLang = window.APP_LANG || 'zh-CN';
@@ -383,6 +409,13 @@ export const formLogicFn = (t) => {
                     if (this.enableClashUI) params.append('enable_clash_ui', 'true');
                     if (this.externalController) params.append('external_controller', this.externalController);
                     if (this.externalUiDownloadUrl) params.append('external_ui_download_url', this.externalUiDownloadUrl);
+
+                    if (this.filterInclude.trim()) params.append('include', this.filterInclude.trim());
+                    if (this.filterExclude.trim()) params.append('exclude', this.filterExclude.trim());
+                    if (this.filterIncludeCountry.trim()) params.append('include_country', this.filterIncludeCountry.trim());
+                    if (this.filterExcludeCountry.trim()) params.append('exclude_country', this.filterExcludeCountry.trim());
+                    if (this.filterIncludeType.trim()) params.append('include_type', this.filterIncludeType.trim());
+                    if (this.filterExcludeType.trim()) params.append('exclude_type', this.filterExcludeType.trim());
 
                     // Add configId if present in URL
                     const urlParams = new URLSearchParams(window.location.search);
@@ -623,6 +656,19 @@ export const formLogicFn = (t) => {
                 this.groupByCountry = params.get('group_by_country') === 'true';
                 this.includeAutoSelect = params.get('include_auto_select') !== 'false';
                 this.enableClashUI = params.get('enable_clash_ui') === 'true';
+
+                const include = params.get('include');
+                if (include) this.filterInclude = include;
+                const exclude = params.get('exclude');
+                if (exclude) this.filterExclude = exclude;
+                const includeCountry = params.get('include_country');
+                if (includeCountry) this.filterIncludeCountry = includeCountry;
+                const excludeCountry = params.get('exclude_country');
+                if (excludeCountry) this.filterExcludeCountry = excludeCountry;
+                const includeType = params.get('include_type');
+                if (includeType) this.filterIncludeType = includeType;
+                const excludeType = params.get('exclude_type');
+                if (excludeType) this.filterExcludeType = excludeType;
 
                 const externalController = params.get('external_controller');
                 if (externalController) {

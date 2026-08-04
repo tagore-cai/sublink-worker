@@ -11,6 +11,7 @@ import { ClashConfigBuilder } from '../builders/ClashConfigBuilder.js';
 import { SurgeConfigBuilder } from '../builders/SurgeConfigBuilder.js';
 import { createTranslator, resolveLanguage } from '../i18n/index.js';
 import { encodeBase64, tryDecodeSubscriptionLines } from '../utils.js';
+import { parseProxyFilter, filterUriLines } from '../utils/proxyFilter.js';
 import { APP_NAME, APP_SUBTITLE } from '../constants.js';
 import { ShortLinkService } from '../services/shortLinkService.js';
 import { ConfigStorageService } from '../services/configStorageService.js';
@@ -85,6 +86,7 @@ export function createApp(bindings = {}) {
             const externalUiDownloadUrl = c.req.query('external_ui_download_url');
             const configId = c.req.query('configId');
             const lang = c.get('lang');
+            const proxyFilter = parseProxyFilter(c.req.raw?.url || '');
 
             const requestedSingboxVersion = c.req.query('singbox_version') || c.req.query('sb_version') || c.req.query('sb_ver');
             const requestUserAgent = getRequestHeader(c.req, 'User-Agent');
@@ -111,7 +113,8 @@ export function createApp(bindings = {}) {
                 externalController,
                 externalUiDownloadUrl,
                 singboxConfigVersion,
-                includeAutoSelect
+                includeAutoSelect,
+                proxyFilter
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -141,6 +144,7 @@ export function createApp(bindings = {}) {
             const externalUiDownloadUrl = c.req.query('external_ui_download_url');
             const configId = c.req.query('configId');
             const lang = c.get('lang');
+            const proxyFilter = parseProxyFilter(c.req.raw?.url || '');
 
             let baseConfig;
             if (configId) {
@@ -159,7 +163,8 @@ export function createApp(bindings = {}) {
                 enableClashUI,
                 externalController,
                 externalUiDownloadUrl,
-                includeAutoSelect
+                includeAutoSelect,
+                proxyFilter
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -187,6 +192,7 @@ export function createApp(bindings = {}) {
             const includeAutoSelect = c.req.query('include_auto_select') !== 'false';
             const configId = c.req.query('configId');
             const lang = c.get('lang');
+            const proxyFilter = parseProxyFilter(c.req.raw?.url || '');
 
             let baseConfig;
             if (configId) {
@@ -202,7 +208,8 @@ export function createApp(bindings = {}) {
                 lang,
                 ua,
                 groupByCountry,
-                includeAutoSelect
+                includeAutoSelect,
+                proxyFilter
             );
             builder.setSubscriptionUrl(c.req.url);
             await builder.build();
@@ -268,6 +275,7 @@ export function createApp(bindings = {}) {
 
         const proxylist = inputString.split('\n');
         const finalProxyList = [];
+        const proxyFilter = parseProxyFilter(c.req.raw?.url || '');
         let subscriptionUserinfo;
         const userAgent = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
         const headers = { 'User-Agent': userAgent };
@@ -297,7 +305,7 @@ export function createApp(bindings = {}) {
             }
         }
 
-        const finalString = finalProxyList.join('\n');
+        const finalString = filterUriLines(finalProxyList, proxyFilter).join('\n');
         if (!finalString) {
             return c.text('Missing config parameter', 400);
         }
